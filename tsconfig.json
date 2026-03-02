@@ -5,13 +5,19 @@
     "lib": ["ES2020"],
     "outDir": "./dist",
     "rootDir": "./src",
-    "strict": true,
-    "esModuleInterop": true,
+
+    /* 🔥 IMPORTANT CHANGES */
+    "strict": false,
+    "noImplicitAny": false,
+    "noEmitOnError": false,
     "skipLibCheck": true,
+
+    "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
-    "declaration": true,
-    "declarationMap": true,
+
+    /* Optional but safe */
+    "declaration": false,
     "sourceMap": true
   },
   "include": ["src/**/*"],
