@@ -1,26 +1,10 @@
 import pdfParse from 'pdf-parse';
-import crypto from 'crypto';
 import { GoogleGenerativeAI } from '@google/generative-ai';
-
-interface PDFCache {
-  hash: string;
-  topics: string[];
-  questions: string[];
-  summary: string;
-  keyPoints: string[];
-  processedAt: Date;
-}
-
-const pdfCache: Map<string, PDFCache> = new Map();
-
-function hashContent(content: string): string {
-  return crypto.createHash('md5').update(content).toString();
-}
 
 function getGeminiClient(): GoogleGenerativeAI | null {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    console.error('GEMINI_API_KEY not configured');
+    console.error('[PDF] GEMINI_API_KEY not set!');
     return null;
   }
   return new GoogleGenerativeAI(apiKey);
@@ -29,9 +13,9 @@ function getGeminiClient(): GoogleGenerativeAI | null {
 export async function extractTextFromPDF(buffer: Buffer): Promise<string> {
   try {
     const data = await pdfParse(buffer);
-    return data.text;
-  } catch (error) {
-    console.error('PDF extraction error:', error);
+    return data.text || '';
+  } catch (error: any) {
+    console.error('[PDF] Extract error:', error.message);
     return '';
   }
 }
@@ -46,28 +30,18 @@ export async function processPDF(
   keyPoints: string[];
   cached: boolean;
 }> {
-  const text = await extractTextFromPDF(pdfBuffer);
+  console.log('[PDF] Processing:', filename);
   
-  if (!text || text.trim().length < 50) {
+  const text = await extractTextFromPDF(pdfBuffer);
+  console.log('[PDF] Extracted text length:', text?.length || 0);
+  
+  if (!text || text.trim().length < 20) {
     return {
       topics: [],
       questions: [],
-      summary: 'Could not extract text from PDF. The file may be empty or corrupted.',
+      summary: 'Could not extract text from PDF',
       keyPoints: [],
       cached: false
-    };
-  }
-
-  const contentHash = hashContent(text);
-
-  const cached = pdfCache.get(contentHash);
-  if (cached) {
-    return {
-      topics: cached.topics,
-      questions: cached.questions,
-      summary: cached.summary,
-      keyPoints: cached.keyPoints,
-      cached: true
     };
   }
 
@@ -75,9 +49,9 @@ export async function processPDF(
   
   if (!genAI) {
     return {
-      topics: extractTopicsFromText(text),
+      topics: [],
       questions: [],
-      summary: 'AI not configured. Please set GEMINI_API_KEY in environment.',
+      summary: 'ERROR: GEMINI_API_KEY not configured on server',
       keyPoints: [],
       cached: false
     };
@@ -86,93 +60,47 @@ export async function processPDF(
   try {
     const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
 
-    const truncatedText = text.substring(0, 15000);
+    const prompt = `Analyze this PDF content and return ONLY valid JSON:
 
-    const prompt = `You are an AI teaching assistant. Analyze this educational document and provide:
-
-1. A clear SUMMARY (2-3 sentences)
-2. A list of KEY POINTS (5-8 items)
-3. Main TOPICS covered (8-12 items)
-4. 5-7 PRACTICE QUESTIONS to test understanding
-
-PDF Content:
-${truncatedText}
-
-Respond in this JSON format only:
 {
-  "summary": "your summary here",
+  "summary": "2-3 sentence summary",
   "keyPoints": ["point 1", "point 2", "point 3", "point 4", "point 5"],
-  "topics": ["topic 1", "topic 2", "topic 3", "topic 4", "topic 5", "topic 6", "topic 7", "topic 8"],
-  "questions": ["question 1", "question 2", "question 3", "question 4", "question 5"]
-}`;
+  "topics": ["topic 1", "topic 2", "topic 3"],
+  "questions": ["question 1", "question 2"]
+}
+
+Content:
+${text.substring(0, 10000)}`;
 
     const result = await model.generateContent(prompt);
     const response = result.response.text();
+    console.log('[PDF] Gemini response:', response.substring(0, 300));
 
-    console.log('Gemini PDF response:', response.substring(0, 500));
-
-    let parsed: any = null;
-    
     const jsonMatch = response.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
-      try {
-        parsed = JSON.parse(jsonMatch[0]);
-      } catch (e) {
-        console.error('JSON parse error:', e);
-      }
-    }
-
-    if (!parsed) {
-      const lines = response.split('\n').filter(l => l.trim());
-      const summaryMatch = response.match(/summary["']?\s*[:=]\s*["']([^"']+)/i);
-      const summary = summaryMatch ? summaryMatch[1] : lines.slice(0, 3).join(' ');
-      
-      parsed = {
-        summary: summary || 'Analysis complete',
-        keyPoints: lines.filter(l => l.match(/^[•\-\d]/)).slice(0, 5),
-        topics: [],
-        questions: []
-      };
-    }
-
-    const topics = Array.isArray(parsed.topics) ? parsed.topics : [];
-    const questions = Array.isArray(parsed.questions) ? parsed.questions : [];
-    const keyPoints = Array.isArray(parsed.keyPoints) ? parsed.keyPoints : [];
-    const summary = parsed.summary || 'Analysis complete';
-
-    pdfCache.set(contentHash, {
-      hash: contentHash,
-      topics,
-      questions,
-      summary,
-      keyPoints,
-      processedAt: new Date()
-    });
-
-    return {
-      topics,
-      questions,
-      summary,
-      keyPoints,
-      cached: false
-    };
-  } catch (error: any) {
-    console.error('PDF AI processing error:', error);
-    
-    if (error.message?.includes('quota') || error.message?.includes('rate limit')) {
+      const parsed = JSON.parse(jsonMatch[0]);
       return {
-        topics: extractTopicsFromText(text),
-        questions: [],
-        summary: 'AI quota exceeded. Please try again later.',
-        keyPoints: [],
+        topics: parsed.topics || [],
+        questions: parsed.questions || [],
+        summary: parsed.summary || 'Analysis complete',
+        keyPoints: parsed.keyPoints || [],
         cached: false
       };
     }
-    
+
     return {
-      topics: extractTopicsFromText(text),
+      topics: [],
       questions: [],
-      summary: 'Processed with limited AI analysis',
+      summary: 'AI returned invalid format: ' + response.substring(0, 200),
+      keyPoints: [],
+      cached: false
+    };
+  } catch (error: any) {
+    console.error('[PDF] Gemini error:', error.message);
+    return {
+      topics: [],
+      questions: [],
+      summary: 'ERROR: ' + error.message,
       keyPoints: [],
       cached: false
     };
