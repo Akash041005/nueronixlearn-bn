@@ -12,6 +12,7 @@ const registerSchema = Joi.object({
   email: Joi.string().email().required(),
   password: Joi.string().min(6).required(),
   name: Joi.string().min(2).required(),
+  phone: Joi.string().allow('').optional(),
   role: Joi.string().valid('student', 'teacher').default('student')
 });
 
@@ -50,6 +51,8 @@ router.post('/register', async (req: Request, res: Response) => {
       const user = new User({
         email: value.email.toLowerCase(),
         password: value.password,
+        phone: value.phone || '',
+        phoneVerified: false,
         name: value.name,
         role: value.role || 'student',
         profile: {
@@ -188,6 +191,210 @@ router.put('/profile', authenticate, async (req: AuthRequest, res: Response) => 
     });
   } catch (err) {
     res.status(500).json({ error: 'Failed to update profile' });
+  }
+});
+
+// OTP storage (in production, use Redis)
+const otpStore: Map<string, { otp: string; expiresAt: Date; verified: boolean }> = new Map();
+
+function generateOTP(): string {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+function sendOTPEmail(email: string, otp: string): void {
+  console.log(`[OTP] Sending to ${email}: ${otp}`);
+}
+
+// Send OTP to email
+router.post('/send-otp', async (req: Request, res: Response) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: 'Email is required' });
+
+    const existingUser = await User.findOne({ email: email.toLowerCase() });
+    if (existingUser && existingUser.password) {
+      return res.status(400).json({ error: 'Email already registered. Please login.' });
+    }
+
+    const otp = generateOTP();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+
+    otpStore.set(email.toLowerCase(), { otp, expiresAt, verified: false });
+
+    sendOTPEmail(email.toLowerCase(), otp);
+
+    res.json({ message: 'OTP sent to your email', expiresIn: '10 minutes' });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to send OTP' });
+  }
+});
+
+// Verify OTP and register
+router.post('/verify-otp-register', async (req: Request, res: Response) => {
+  try {
+    const { email, otp, name, password, role, phone } = req.body;
+
+    if (!email || !otp || !name || !password) {
+      return res.status(400).json({ error: 'All fields are required' });
+    }
+
+    const stored = otpStore.get(email.toLowerCase());
+    if (!stored) return res.status(400).json({ error: 'OTP not requested. Request OTP first.' });
+    if (new Date() > stored.expiresAt) {
+      otpStore.delete(email.toLowerCase());
+      return res.status(400).json({ error: 'OTP expired. Request a new one.' });
+    }
+    if (stored.otp !== otp) {
+      return res.status(400).json({ error: 'Invalid OTP' });
+    }
+
+    const existingUser = await User.findOne({ email: email.toLowerCase() });
+    if (existingUser) return res.status(400).json({ error: 'Email already registered' });
+
+    const user = new User({
+      email: email.toLowerCase(),
+      password,
+      phone: phone || '',
+      phoneVerified: false,
+      name,
+      role: role || 'student',
+      profile: {
+        subjectInterests: [],
+        weakAreas: [],
+        preferredLearningStyle: 'mixed',
+        learningGoals: [],
+        currentPerformanceLevel: 'average',
+        pacePreference: 'medium',
+        languagePreference: 'en'
+      },
+      studentProfile: {
+        educationLevel: '',
+        targetGoals: [],
+        learningStreak: 0,
+        totalXP: 0,
+        level: 1,
+        badges: [],
+        completedPaths: [],
+        subscriptionPlan: 'free'
+      }
+    });
+
+    await user.save();
+    otpStore.delete(email.toLowerCase());
+
+    const token = jwt.sign(
+      { userId: user._id },
+      process.env.JWT_SECRET || 'nueronixlearn-secret',
+      { expiresIn: '7d' }
+    );
+
+    res.status(201).json({
+      token,
+      user: {
+        id: user._id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        phone: user.phone,
+        phoneVerified: user.phoneVerified,
+        onboardingCompleted: user.onboardingCompleted,
+        profile: user.profile
+      }
+    });
+  } catch (err: any) {
+    console.error('OTP register error:', err);
+    res.status(500).json({ error: err.message || 'Registration failed' });
+  }
+});
+
+// Send OTP for login verification
+router.post('/send-login-otp', async (req: Request, res: Response) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: 'Email is required' });
+
+    const user = await User.findOne({ email: email.toLowerCase() });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const otp = generateOTP();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+
+    otpStore.set(`login:${email.toLowerCase()}`, { otp, expiresAt, verified: false });
+
+    sendOTPEmail(email.toLowerCase(), otp);
+
+    res.json({ message: 'OTP sent to your email', expiresIn: '10 minutes' });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to send OTP' });
+  }
+});
+
+// Verify OTP and login
+router.post('/verify-otp-login', async (req: Request, res: Response) => {
+  try {
+    const { email, otp } = req.body;
+
+    if (!email || !otp) {
+      return res.status(400).json({ error: 'Email and OTP are required' });
+    }
+
+    const stored = otpStore.get(`login:${email.toLowerCase()}`);
+    if (!stored) return res.status(400).json({ error: 'OTP not requested. Request OTP first.' });
+    if (new Date() > stored.expiresAt) {
+      otpStore.delete(`login:${email.toLowerCase()}`);
+      return res.status(400).json({ error: 'OTP expired. Request a new one.' });
+    }
+    if (stored.otp !== otp) {
+      return res.status(400).json({ error: 'Invalid OTP' });
+    }
+
+    const user = await User.findOne({ email: email.toLowerCase() });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    user.lastLogin = new Date();
+    await user.save();
+    otpStore.delete(`login:${email.toLowerCase()}`);
+
+    const token = jwt.sign(
+      { userId: user._id },
+      process.env.JWT_SECRET || 'nueronixlearn-secret',
+      { expiresIn: '7d' }
+    );
+
+    res.json({
+      token,
+      user: {
+        id: user._id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        phone: user.phone,
+        phoneVerified: user.phoneVerified,
+        onboardingCompleted: user.onboardingCompleted,
+        profile: user.profile
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Login failed' });
+  }
+});
+
+// Update phone number
+router.put('/phone', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const { phone } = req.body;
+    if (!phone) return res.status(400).json({ error: 'Phone number is required' });
+
+    const user = await User.findById(req.user?._id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    user.phone = phone;
+    user.phoneVerified = false;
+    await user.save();
+
+    res.json({ message: 'Phone number updated', phone: user.phone, phoneVerified: false });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to update phone' });
   }
 });
 

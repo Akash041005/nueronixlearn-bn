@@ -1,0 +1,391 @@
+import { Router, Request, Response } from 'express';
+import jwt from 'jsonwebtoken';
+import Joi from 'joi';
+import Admin from '../models/Admin';
+import User from '../models/User';
+import Course from '../models/Course';
+import Exam from '../models/Exam';
+import Recommendation from '../models/Recommendation';
+import Feedback from '../models/Feedback';
+import UserProgress from '../models/UserProgress';
+
+const router = Router();
+
+const JWT_SECRET = process.env.JWT_SECRET || 'nueronixlearn-secret-admin';
+
+const loginSchema = Joi.object({
+  username: Joi.string().required(),
+  password: Joi.string().required()
+});
+
+router.post('/login', async (req: Request, res: Response) => {
+  try {
+    const { error, value } = loginSchema.validate(req.body);
+    if (error) return res.status(400).json({ error: error.details[0].message });
+
+    const admin = await Admin.findOne({ username: value.username });
+    if (!admin || !(await admin.comparePassword(value.password))) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    const token = jwt.sign(
+      { adminId: admin._id, isSuperAdmin: admin.isSuperAdmin },
+      JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    res.json({
+      token,
+      admin: {
+        id: admin._id,
+        username: admin.username,
+        email: admin.email,
+        isSuperAdmin: admin.isSuperAdmin
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ======================
+// AUTH MIDDLEWARE
+// ======================
+
+const authenticateAdmin = (req: Request, res: Response, next: Function) => {
+  const token = req.headers.authorization?.replace('Bearer ', '');
+  if (!token) return res.status(401).json({ error: 'Unauthorized' });
+
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET) as any;
+    (req as any).adminId = decoded.adminId;
+    (req as any).isSuperAdmin = decoded.isSuperAdmin;
+    next();
+  } catch (err) {
+    return res.status(401).json({ error: 'Invalid token' });
+  }
+};
+
+// ======================
+// DASHBOARD STATS
+// ======================
+
+router.get('/stats', authenticateAdmin, async (req: Request, res: Response) => {
+  try {
+    const [totalUsers, totalTeachers, totalStudents, totalCourses, totalExams, totalEnrollments] = await Promise.all([
+      User.countDocuments(),
+      User.countDocuments({ role: 'teacher' }),
+      User.countDocuments({ role: 'student' }),
+      Course.countDocuments(),
+      Exam.countDocuments(),
+      UserProgress.countDocuments()
+    ]);
+
+    const recentUsers = await User.find().sort({ createdAt: -1 }).limit(5).select('-password');
+    const recentCourses = await Course.find().sort({ createdAt: -1 }).limit(5);
+
+    res.json({
+      stats: {
+        totalUsers,
+        totalTeachers,
+        totalStudents,
+        totalCourses,
+        totalExams,
+        totalEnrollments
+      },
+      recentUsers,
+      recentCourses
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch stats' });
+  }
+});
+
+// ======================
+// USER MANAGEMENT
+// ======================
+
+router.get('/users', authenticateAdmin, async (req: Request, res: Response) => {
+  try {
+    const { page = 1, limit = 20, search, role } = req.query;
+    const query: any = {};
+
+    if (search) {
+      query.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } }
+      ];
+    }
+    if (role) query.role = role;
+
+    const users = await User.find(query)
+      .select('-password')
+      .sort({ createdAt: -1 })
+      .skip((Number(page) - 1) * Number(limit))
+      .limit(Number(limit));
+
+    const total = await User.countDocuments(query);
+
+    res.json({ users, total, page: Number(page), totalPages: Math.ceil(total / Number(limit)) });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch users' });
+  }
+});
+
+router.get('/users/:id', authenticateAdmin, async (req: Request, res: Response) => {
+  try {
+    const user = await User.findById(req.params.id).select('-password');
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const progress = await UserProgress.find({ userId: req.params.id });
+    const recommendations = await Recommendation.find({ userId: req.params.id });
+
+    res.json({ user, progress, recommendations });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch user' });
+  }
+});
+
+router.put('/users/:id/role', authenticateAdmin, async (req: Request, res: Response) => {
+  try {
+    const { role } = req.body;
+    if (!['student', 'teacher', 'admin'].includes(role)) {
+      return res.status(400).json({ error: 'Invalid role' });
+    }
+
+    const user = await User.findByIdAndUpdate(req.params.id, { role }, { new: true }).select('-password');
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    res.json({ message: 'Role updated', user });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to update role' });
+  }
+});
+
+router.delete('/users/:id', authenticateAdmin, async (req: Request, res: Response) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    await User.findByIdAndDelete(req.params.id);
+    await UserProgress.deleteMany({ userId: req.params.id });
+    await Recommendation.deleteMany({ userId: req.params.id });
+    await Feedback.deleteMany({ userId: req.params.id });
+
+    res.json({ message: 'User deleted successfully' });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to delete user' });
+  }
+});
+
+// ======================
+// COURSE MANAGEMENT
+// ======================
+
+router.get('/courses', authenticateAdmin, async (req: Request, res: Response) => {
+  try {
+    const { page = 1, limit = 20, search, category, featured } = req.query;
+    const query: any = {};
+
+    if (search) {
+      query.$or = [
+        { title: { $regex: search, $options: 'i' } },
+        { description: { $regex: search, $options: 'i' } }
+      ];
+    }
+    if (category) query.category = category;
+    if (featured === 'true') query.featured = true;
+
+    const courses = await Course.find(query)
+      .populate('teacherId', 'name email')
+      .sort({ createdAt: -1 })
+      .skip((Number(page) - 1) * Number(limit))
+      .limit(Number(limit));
+
+    const total = await Course.countDocuments(query);
+
+    res.json({ courses, total, page: Number(page), totalPages: Math.ceil(total / Number(limit)) });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch courses' });
+  }
+});
+
+router.get('/courses/:id', authenticateAdmin, async (req: Request, res: Response) => {
+  try {
+    const course = await Course.findById(req.params.id).populate('teacherId', 'name email');
+    if (!course) return res.status(404).json({ error: 'Course not found' });
+
+    const enrollments = await UserProgress.find({ courseId: req.params.id });
+
+    res.json({ course, enrollments: enrollments.length });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch course' });
+  }
+});
+
+router.put('/courses/:id/featured', authenticateAdmin, async (req: Request, res: Response) => {
+  try {
+    const { featured } = req.body;
+    const course = await Course.findByIdAndUpdate(req.params.id, { featured }, { new: true });
+    if (!course) return res.status(404).json({ error: 'Course not found' });
+
+    res.json({ message: 'Course featured status updated', course });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to update course' });
+  }
+});
+
+router.delete('/courses/:id', authenticateAdmin, async (req: Request, res: Response) => {
+  try {
+    const course = await Course.findById(req.params.id);
+    if (!course) return res.status(404).json({ error: 'Course not found' });
+
+    await Course.findByIdAndDelete(req.params.id);
+    await UserProgress.deleteMany({ courseId: req.params.id });
+
+    res.json({ message: 'Course deleted successfully' });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to delete course' });
+  }
+});
+
+// ======================
+// EXAM MANAGEMENT
+// ======================
+
+router.get('/exams', authenticateAdmin, async (req: Request, res: Response) => {
+  try {
+    const { page = 1, limit = 20, search, published } = req.query;
+    const query: any = {};
+
+    if (search) {
+      query.$or = [
+        { title: { $regex: search, $options: 'i' } }
+      ];
+    }
+    if (published !== undefined) query.published = published === 'true';
+
+    const exams = await Exam.find(query)
+      .populate('createdBy', 'name email')
+      .sort({ createdAt: -1 })
+      .skip((Number(page) - 1) * Number(limit))
+      .limit(Number(limit));
+
+    const total = await Exam.countDocuments(query);
+
+    res.json({ exams, total, page: Number(page), totalPages: Math.ceil(total / Number(limit)) });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch exams' });
+  }
+});
+
+router.delete('/exams/:id', authenticateAdmin, async (req: Request, res: Response) => {
+  try {
+    const exam = await Exam.findById(req.params.id);
+    if (!exam) return res.status(404).json({ error: 'Exam not found' });
+
+    await Exam.findByIdAndDelete(req.params.id);
+
+    res.json({ message: 'Exam deleted successfully' });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to delete exam' });
+  }
+});
+
+// ======================
+// ANALYTICS
+// ======================
+
+router.get('/analytics', authenticateAdmin, async (req: Request, res: Response) => {
+  try {
+    const { days = 30 } = req.query;
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - Number(days));
+
+    const userGrowth = await User.aggregate([
+      { $match: { createdAt: { $gte: startDate } } },
+      { $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } }, count: { $sum: 1 } } },
+      { $sort: { _id: 1 } }
+    ]);
+
+    const courseGrowth = await Course.aggregate([
+      { $match: { createdAt: { $gte: startDate } } },
+      { $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } }, count: { $sum: 1 } } },
+      { $sort: { _id: 1 } }
+    ]);
+
+    const topCourses = await Course.find().sort({ enrollments: -1 }).limit(10).select('title enrollments');
+    const topTeachers = await User.find({ role: 'teacher' }).sort({ 'teacherProfile.totalStudents': -1 }).limit(10).select('name email teacherProfile');
+
+    const feedbackSummary = await Feedback.aggregate([
+      { $match: { createdAt: { $gte: startDate } } },
+      { $group: { _id: '$type', count: { $sum: 1 } } }
+    ]);
+
+    res.json({
+      userGrowth,
+      courseGrowth,
+      topCourses,
+      topTeachers,
+      feedbackSummary
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch analytics' });
+  }
+});
+
+// ======================
+// ADMIN MANAGEMENT (existing)
+// ======================
+
+router.get('/list', authenticateAdmin, async (req: Request, res: Response) => {
+  try {
+    if (!(req as any).isSuperAdmin) {
+      return res.status(403).json({ error: 'Only super admins can list admins' });
+    }
+    const admins = await Admin.find().select('-password');
+    res.json({ admins });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch admins' });
+  }
+});
+
+router.post('/add', authenticateAdmin, async (req: Request, res: Response) => {
+  try {
+    if (!(req as any).isSuperAdmin) {
+      return res.status(403).json({ error: 'Only super admins can add admins' });
+    }
+
+    const { username, password, email, isSuperAdmin } = req.body;
+    const existing = await Admin.findOne({ $or: [{ username }, { email }] });
+    if (existing) return res.status(400).json({ error: 'Username or email already exists' });
+
+    const admin = new Admin({ username, password, email, isSuperAdmin: isSuperAdmin || false });
+    await admin.save();
+
+    res.status(201).json({ message: 'Admin created', admin: { id: admin._id, username, email, isSuperAdmin } });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to create admin' });
+  }
+});
+
+router.delete('/:id', authenticateAdmin, async (req: Request, res: Response) => {
+  try {
+    if (!(req as any).isSuperAdmin) {
+      return res.status(403).json({ error: 'Only super admins can remove admins' });
+    }
+
+    if ((req as any).adminId === req.params.id) {
+      return res.status(400).json({ error: 'Cannot remove yourself' });
+    }
+
+    const admin = await Admin.findByIdAndDelete(req.params.id);
+    if (!admin) return res.status(404).json({ error: 'Admin not found' });
+
+    res.json({ message: 'Admin removed' });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to remove admin' });
+  }
+});
+
+export default router;

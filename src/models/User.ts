@@ -44,6 +44,8 @@ export interface IStudentProfile {
 export interface IUser extends Document {
   email: string;
   password: string;
+  phone?: string;
+  phoneVerified: boolean;
   name: string;
   role: 'student' | 'teacher' | 'admin';
   avatar?: string;
@@ -94,7 +96,9 @@ const studentProfileSchema = new Schema<IStudentProfile>({
 
 const userSchema = new Schema<IUser>({
   email: { type: String, required: true, unique: true, lowercase: true },
-  password: { type: String, required: true, minlength: 6 },
+  password: { type: String, minlength: 6 },
+  phone: { type: String },
+  phoneVerified: { type: Boolean, default: false },
   name: { type: String, required: true },
   role: { type: String, enum: ['student', 'teacher', 'admin'], default: 'student' },
   avatar: { type: String, default: '' },
@@ -172,7 +176,7 @@ const userSchema = new Schema<IUser>({
 }, { timestamps: true });
 
 userSchema.pre('save', async function(next) {
-  if (!this.isModified('password')) return next();
+  if (!this.isModified('password') || !this.password) return next();
   this.password = await bcrypt.hash(this.password, 12);
   next();
 });
