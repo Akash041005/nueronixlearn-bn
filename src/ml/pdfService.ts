@@ -7,6 +7,7 @@ interface PDFCache {
   topics: string[];
   questions: string[];
   summary: string;
+  keyPoints: string[];
   processedAt: Date;
 }
 
@@ -33,15 +34,17 @@ export async function processPDF(
   topics: string[];
   questions: string[];
   summary: string;
+  keyPoints: string[];
   cached: boolean;
 }> {
   const text = await extractTextFromPDF(pdfBuffer);
   
-  if (!text) {
+  if (!text || text.trim().length < 50) {
     return {
       topics: [],
       questions: [],
-      summary: 'Could not extract text from PDF',
+      summary: 'Could not extract text from PDF. The file may be empty or corrupted.',
+      keyPoints: [],
       cached: false
     };
   }
@@ -54,6 +57,7 @@ export async function processPDF(
       topics: cached.topics,
       questions: cached.questions,
       summary: cached.summary,
+      keyPoints: cached.keyPoints,
       cached: true
     };
   }
@@ -65,6 +69,7 @@ export async function processPDF(
       topics: extractTopicsFromText(text),
       questions: [],
       summary: 'AI not configured. Topics extracted manually.',
+      keyPoints: [],
       cached: false
     };
   }
@@ -72,52 +77,97 @@ export async function processPDF(
   try {
     const model = client.getGenerativeModel({ model: 'gemini-2.0-flash' });
 
-    const prompt = `Analyze this educational content and:
-    1. Identify 8-12 main topics/subjects covered
-    2. Generate 5-10 practice questions from the content
-    3. Give a brief summary
-    
-    Content: ${text.substring(0, 8000)}
-    
-    Return JSON:
-    {
-      "topics": ["topic1", "topic2", ...],
-      "questions": ["question1", "question2", ...],
-      "summary": "brief summary"
-    }`;
+    const truncatedText = text.substring(0, 15000);
+
+    const prompt = `You are an AI teaching assistant. Analyze this educational document and provide:
+
+1. A clear SUMMARY (2-3 sentences)
+2. A list of KEY POINTS (5-8 items)
+3. Main TOPICS covered (8-12 items)
+4. 5-7 PRACTICE QUESTIONS to test understanding
+
+PDF Content:
+${truncatedText}
+
+Respond in this JSON format only:
+{
+  "summary": "your summary here",
+  "keyPoints": ["point 1", "point 2", "point 3", "point 4", "point 5"],
+  "topics": ["topic 1", "topic 2", "topic 3", "topic 4", "topic 5", "topic 6", "topic 7", "topic 8"],
+  "questions": ["question 1", "question 2", "question 3", "question 4", "question 5"]
+}`;
 
     const result = await model.generateContent(prompt);
     const response = result.response.text();
 
-    const match = response.match(/\{[\s\S]*\}/);
-    if (match) {
-      const parsed = JSON.parse(match[0]);
-      
-      pdfCache.set(contentHash, {
-        hash: contentHash,
-        topics: parsed.topics || [],
-        questions: parsed.questions || [],
-        summary: parsed.summary || '',
-        processedAt: new Date()
-      });
+    console.log('Gemini PDF response:', response.substring(0, 500));
 
+    let parsed: any = null;
+    
+    const jsonMatch = response.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      try {
+        parsed = JSON.parse(jsonMatch[0]);
+      } catch (e) {
+        console.error('JSON parse error:', e);
+      }
+    }
+
+    if (!parsed) {
+      const lines = response.split('\n').filter(l => l.trim());
+      const summaryMatch = response.match(/summary["']?\s*[:=]\s*["']([^"']+)/i);
+      const summary = summaryMatch ? summaryMatch[1] : lines.slice(0, 3).join(' ');
+      
+      parsed = {
+        summary: summary || 'Analysis complete',
+        keyPoints: lines.filter(l => l.match(/^[•\-\d]/)).slice(0, 5),
+        topics: [],
+        questions: []
+      };
+    }
+
+    const topics = Array.isArray(parsed.topics) ? parsed.topics : [];
+    const questions = Array.isArray(parsed.questions) ? parsed.questions : [];
+    const keyPoints = Array.isArray(parsed.keyPoints) ? parsed.keyPoints : [];
+    const summary = parsed.summary || 'Analysis complete';
+
+    pdfCache.set(contentHash, {
+      hash: contentHash,
+      topics,
+      questions,
+      summary,
+      keyPoints,
+      processedAt: new Date()
+    });
+
+    return {
+      topics,
+      questions,
+      summary,
+      keyPoints,
+      cached: false
+    };
+  } catch (error: any) {
+    console.error('PDF AI processing error:', error);
+    
+    if (error.message?.includes('quota')) {
       return {
-        topics: parsed.topics || [],
-        questions: parsed.questions || [],
-        summary: parsed.summary || '',
+        topics: extractTopicsFromText(text),
+        questions: [],
+        summary: 'AI quota exceeded. Please try again later.',
+        keyPoints: [],
         cached: false
       };
     }
-  } catch (error) {
-    console.error('PDF AI processing error:', error);
+    
+    return {
+      topics: extractTopicsFromText(text),
+      questions: [],
+      summary: 'Processed with limited AI analysis',
+      keyPoints: [],
+      cached: false
+    };
   }
-
-  return {
-    topics: extractTopicsFromText(text),
-    questions: [],
-    summary: 'Processed without AI',
-    cached: false
-  };
 }
 
 function extractTopicsFromText(text: string): string[] {
