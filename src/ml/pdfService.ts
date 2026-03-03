@@ -1,6 +1,6 @@
 import pdfParse from 'pdf-parse';
-import keyManager from './keyManager';
 import crypto from 'crypto';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
 interface PDFCache {
   hash: string;
@@ -15,6 +15,15 @@ const pdfCache: Map<string, PDFCache> = new Map();
 
 function hashContent(content: string): string {
   return crypto.createHash('md5').update(content).toString();
+}
+
+function getGeminiClient(): GoogleGenerativeAI | null {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    console.error('GEMINI_API_KEY not configured');
+    return null;
+  }
+  return new GoogleGenerativeAI(apiKey);
 }
 
 export async function extractTextFromPDF(buffer: Buffer): Promise<string> {
@@ -62,20 +71,20 @@ export async function processPDF(
     };
   }
 
-  const { client } = keyManager.getRecoClient();
+  const genAI = getGeminiClient();
   
-  if (!client) {
+  if (!genAI) {
     return {
       topics: extractTopicsFromText(text),
       questions: [],
-      summary: 'AI not configured. Topics extracted manually.',
+      summary: 'AI not configured. Please set GEMINI_API_KEY in environment.',
       keyPoints: [],
       cached: false
     };
   }
 
   try {
-    const model = client.getGenerativeModel({ model: 'gemini-2.0-flash' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
 
     const truncatedText = text.substring(0, 15000);
 
@@ -150,7 +159,7 @@ Respond in this JSON format only:
   } catch (error: any) {
     console.error('PDF AI processing error:', error);
     
-    if (error.message?.includes('quota')) {
+    if (error.message?.includes('quota') || error.message?.includes('rate limit')) {
       return {
         topics: extractTopicsFromText(text),
         questions: [],

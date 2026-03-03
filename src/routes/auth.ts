@@ -92,10 +92,10 @@ router.post('/register', async (req: Request, res: Response) => {
       await user.save();
       console.log('User created successfully:', user._id);
 
-      const token = jwt.sign(
+const token = jwt.sign(
         { userId: user._id },
         process.env.JWT_SECRET || 'nueronixlearn-secret',
-        { expiresIn: '7d' }
+        { expiresIn: '30d' }
       );
 
       res.status(201).json({
@@ -127,15 +127,18 @@ router.post('/login', async (req: Request, res: Response) => {
     const { error, value } = loginSchema.validate(req.body);
     if (error) return res.status(400).json({ error: error.details[0].message });
 
-    const user = await User.findOne({ email: value.email });
+    const user = await User.findOne({ email: value.email.toLowerCase() });
     if (!user || !(await user.comparePassword(value.password))) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
+    user.lastLogin = new Date();
+    await user.save();
+
     const token = jwt.sign(
       { userId: user._id },
-      process.env.JWT_SECRET || 'neurlearn-secret',
-      { expiresIn: '7d' }
+      process.env.JWT_SECRET || 'nueronixlearn-secret',
+      { expiresIn: '30d' }
     );
 
     res.json({
@@ -161,8 +164,8 @@ router.get('/me', authenticate, async (req: AuthRequest, res: Response) => {
 router.post('/refresh', authenticate, async (req: AuthRequest, res: Response) => {
   const token = jwt.sign(
     { userId: req.user?._id },
-    process.env.JWT_SECRET || 'neurlearn-secret',
-    { expiresIn: '7d' }
+    process.env.JWT_SECRET || 'nueronixlearn-secret',
+    { expiresIn: '30d' }
   );
   res.json({ token });
 });
