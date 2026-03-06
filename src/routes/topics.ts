@@ -28,75 +28,102 @@ const completeSubtopicSchema = Joi.object({
 });
 
 const completeTopicSchema = Joi.object({
-  subject: Joi.string().min(1).max(100).required(),
+  subject: Joi.string().min(1).max(200).required(),
   topicTitle: Joi.string().min(1).max(200).required()
 });
 
+
+/* ---------------- ADD SUBJECT ---------------- */
+
 router.post('/add-subject', authenticate, async (req: AuthRequest, res: Response) => {
   try {
-    const { error, value } = addSubjectSchema.validate(req.body);
-    if (error) return res.status(400).json({ error: error.details[0].message });
 
-    const { subject } = value;
+    const { error, value } = addSubjectSchema.validate(req.body);
+    if (error) {
+      return res.status(400).json({ error: error.details[0].message });
+    }
+
+    const subject = value.subject.trim();
     const userId = req.user!._id.toString();
 
-    // createUserSubject now handles all cases:
-    //   - New subject: generate + store
-    //   - Existing subject with < 6 topics: delete bad data + regenerate
-    //   - Existing subject with >= 6 topics: return existing
     const { subjectDoc, topics } = await createUserSubject(userId, subject);
 
-    // Always re-fetch full progress so we return complete subtopic data too
     const progress = await getRoadmapProgress(userId, subject);
 
     res.json({
-      message: topics.length >= 6 ? 'Roadmap generated successfully' : 'Subject added',
+      message: 'Roadmap generated successfully',
       subject: subjectDoc,
-      topics: progress.topics,
-      subtopics: progress.subtopics
+      topics: progress?.topics || [],
+      subtopics: progress?.subtopics || {}
     });
+
   } catch (err: any) {
-    console.error('Error adding subject — message:', err?.message);
-    console.error('Error adding subject — stack:', err?.stack);
-    res.status(500).json({ error: err?.message || 'Failed to add subject' });
+
+    console.error('Error adding subject:', err);
+
+    res.status(500).json({
+      error: err?.message || 'Failed to add subject'
+    });
+
   }
 });
 
+
+/* ---------------- GET SUBJECTS ---------------- */
+
 router.get('/subjects', authenticate, async (req: AuthRequest, res: Response) => {
+
   try {
+
     let subjects = await getUserSubjects(req.user!._id.toString());
 
-    // If no subjects exist yet, auto-seed from the user's weak areas (set during onboarding)
     if (subjects.length === 0) {
+
       const user = await User.findById(req.user!._id);
+
       const weakAreas: string[] = user?.profile?.weakAreas || [];
       const subjectInterests: string[] = user?.profile?.subjectInterests || [];
+
       const allAreas = [...new Set([...weakAreas, ...subjectInterests])];
 
       if (allAreas.length > 0) {
-        console.log(`Auto-seeding study plan for new user from ${allAreas.length} weak areas / interests`);
+
         for (const area of allAreas) {
+
           try {
             await createUserSubject(req.user!._id.toString(), area);
           } catch (seedErr) {
             console.error(`Failed to auto-seed subject "${area}":`, seedErr);
           }
+
         }
+
         subjects = await getUserSubjects(req.user!._id.toString());
       }
+
     }
 
     res.json({ subjects });
+
   } catch (err) {
+
     console.error('Error fetching subjects:', err);
+
     res.status(500).json({ error: 'Failed to fetch subjects' });
+
   }
+
 });
 
+
+/* ---------------- ROADMAP ---------------- */
+
 router.get('/roadmap/:subject', authenticate, async (req: AuthRequest, res: Response) => {
+
   try {
-    const { subject } = req.params;
-    
+
+    const subject = decodeURIComponent(req.params.subject);
+
     const progress = await getRoadmapProgress(
       req.user!._id.toString(),
       subject
@@ -108,20 +135,33 @@ router.get('/roadmap/:subject', authenticate, async (req: AuthRequest, res: Resp
     );
 
     res.json({
-      topics: progress.topics,
-      subtopics: progress.subtopics,
+      topics: progress?.topics || [],
+      subtopics: progress?.subtopics || {},
       nextTopic
     });
+
   } catch (err) {
+
     console.error('Error fetching roadmap:', err);
+
     res.status(500).json({ error: 'Failed to fetch roadmap' });
+
   }
+
 });
 
+
+/* ---------------- COMPLETE TOPIC ---------------- */
+
 router.post('/complete-topic', authenticate, async (req: AuthRequest, res: Response) => {
+
   try {
+
     const { error, value } = completeTopicSchema.validate(req.body);
-    if (error) return res.status(400).json({ error: error.details[0].message });
+
+    if (error) {
+      return res.status(400).json({ error: error.details[0].message });
+    }
 
     const { subject, topicTitle } = value;
 
@@ -140,16 +180,29 @@ router.post('/complete-topic', authenticate, async (req: AuthRequest, res: Respo
       completed,
       nextTopic
     });
+
   } catch (err) {
+
     console.error('Error completing topic:', err);
+
     res.status(500).json({ error: 'Failed to complete topic' });
+
   }
+
 });
 
+
+/* ---------------- COMPLETE SUBTOPIC ---------------- */
+
 router.post('/complete-subtopic', authenticate, async (req: AuthRequest, res: Response) => {
+
   try {
+
     const { error, value } = completeSubtopicSchema.validate(req.body);
-    if (error) return res.status(400).json({ error: error.details[0].message });
+
+    if (error) {
+      return res.status(400).json({ error: error.details[0].message });
+    }
 
     const { subject, topicTitle, subtopicTitle } = value;
 
@@ -170,15 +223,25 @@ router.post('/complete-subtopic', authenticate, async (req: AuthRequest, res: Re
       nextSubtopic,
       topicCompleted
     });
+
   } catch (err) {
+
     console.error('Error completing subtopic:', err);
+
     res.status(500).json({ error: 'Failed to complete subtopic' });
+
   }
+
 });
 
+
+/* ---------------- NEXT TOPIC ---------------- */
+
 router.get('/next/:subject', authenticate, async (req: AuthRequest, res: Response) => {
+
   try {
-    const { subject } = req.params;
+
+    const subject = decodeURIComponent(req.params.subject);
 
     const nextTopic = await getNextIncompleteTopic(
       req.user!._id.toString(),
@@ -186,11 +249,13 @@ router.get('/next/:subject', authenticate, async (req: AuthRequest, res: Respons
     );
 
     if (!nextTopic) {
+
       return res.json({
         topic: null,
         message: 'All topics completed!',
         resources: { videos: [], blogs: [] }
       });
+
     }
 
     const resources = await getResourcesForTopic(nextTopic.topicTitle, subject);
@@ -199,15 +264,26 @@ router.get('/next/:subject', authenticate, async (req: AuthRequest, res: Respons
       topic: nextTopic,
       resources
     });
+
   } catch (err) {
+
     console.error('Error fetching next topic:', err);
+
     res.status(500).json({ error: 'Failed to fetch next topic' });
+
   }
+
 });
 
+
+/* ---------------- SUBTOPICS ---------------- */
+
 router.get('/subtopics/:subject/:topicTitle', authenticate, async (req: AuthRequest, res: Response) => {
+
   try {
-    const { subject, topicTitle } = req.params;
+
+    const subject = decodeURIComponent(req.params.subject);
+    const topicTitle = decodeURIComponent(req.params.topicTitle);
 
     const subtopics = await generateAndStoreSubtopics(
       req.user!._id.toString(),
@@ -215,72 +291,134 @@ router.get('/subtopics/:subject/:topicTitle', authenticate, async (req: AuthRequ
       topicTitle
     );
 
-    res.json({ subtopics });
+    res.json({
+      subtopics: subtopics || []
+    });
+
   } catch (err) {
+
     console.error('Error fetching subtopics:', err);
+
     res.status(500).json({ error: 'Failed to fetch subtopics' });
+
   }
+
 });
+
+
+/* ---------------- SUBTOPIC RESOURCES ---------------- */
 
 router.get('/resources/subtopic/:subject/:topicTitle/:subtopicTitle', authenticate, async (req: AuthRequest, res: Response) => {
+
   try {
-    const { subject, topicTitle, subtopicTitle } = req.params;
 
-    console.log('Fetching resources for:', { subject, topicTitle, subtopicTitle });
+    const subject = decodeURIComponent(req.params.subject);
+    const topicTitle = decodeURIComponent(req.params.topicTitle);
+    const subtopicTitle = decodeURIComponent(req.params.subtopicTitle);
 
-    const resources = await getResourcesForSubtopic(subtopicTitle, topicTitle, subject);
+    const resources = await getResourcesForSubtopic(
+      subtopicTitle,
+      topicTitle,
+      subject
+    );
 
-    res.json(resources);
+    res.json(resources || { videos: [], blogs: [] });
+
   } catch (err) {
+
     console.error('Error fetching subtopic resources:', err);
+
     res.status(500).json({ error: 'Failed to fetch resources' });
+
   }
+
 });
 
+
+/* ---------------- RESOURCES ---------------- */
+
 router.get('/resources/:subject/:topic', authenticate, async (req: AuthRequest, res: Response) => {
+
   try {
-    const { subject, topic } = req.params;
+
+    const subject = decodeURIComponent(req.params.subject);
+    const topic = decodeURIComponent(req.params.topic);
+
     const type = req.query.type as string;
 
     let resources;
+
     if (type === 'videos') {
+
       const videos = await getVideosOnly(topic, subject);
       resources = { videos, blogs: [] };
+
     } else if (type === 'blogs') {
+
       const blogs = await getBlogsOnly(topic, subject);
       resources = { videos: [], blogs };
+
     } else {
+
       resources = await getResourcesForTopic(topic, subject);
+
     }
 
-    res.json(resources);
+    res.json(resources || { videos: [], blogs: [] });
+
   } catch (err) {
+
     console.error('Error fetching resources:', err);
+
     res.status(500).json({ error: 'Failed to fetch resources' });
+
   }
+
 });
+
+
+/* ---------------- DELETE SUBJECT ---------------- */
 
 router.delete('/subject/:id', authenticate, async (req: AuthRequest, res: Response) => {
+
   try {
+
     await deleteUserSubject(req.user!._id.toString(), req.params.id);
+
     res.json({ message: 'Subject deleted successfully' });
+
   } catch (err) {
+
     console.error('Error deleting subject:', err);
+
     res.status(500).json({ error: 'Failed to delete subject' });
+
   }
+
 });
 
+
+/* ---------------- INITIALIZE FROM WEAK AREAS ---------------- */
+
 router.post('/initialize-from-weak-areas', authenticate, async (req: AuthRequest, res: Response) => {
+
   try {
+
     const createdSubjects = await initializeStudyPlanFromWeakAreas(req.user!._id.toString());
+
     res.json({
       message: 'Study plan initialized from weak areas',
       createdSubjects
     });
+
   } catch (err) {
+
     console.error('Error initializing study plan:', err);
+
     res.status(500).json({ error: 'Failed to initialize study plan' });
+
   }
+
 });
 
 export default router;

@@ -23,8 +23,12 @@ const UserTopicProgressSchema = new Schema<IUserTopicProgress>({
 });
 
 UserTopicProgressSchema.index({ userId: 1, subject: 1 });
-UserTopicProgressSchema.index({ userId: 1, subject: 1, topicTitle: 1 });
+
 UserTopicProgressSchema.index({ userId: 1, subject: 1, completed: 1, order: 1 });
-UserTopicProgressSchema.index({ userId: 1, subject: 1, topicTitle: 1, subtopicTitle: 1 }, { unique: true, sparse: true });
+
+UserTopicProgressSchema.index(
+  { userId: 1, subject: 1, topicTitle: 1, subtopicTitle: 1 },
+  { unique: true, sparse: true }
+);
 
 export default mongoose.model<IUserTopicProgress>('UserTopicProgress', UserTopicProgressSchema);

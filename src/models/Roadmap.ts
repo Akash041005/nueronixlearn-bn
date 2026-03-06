@@ -30,14 +30,29 @@ const TopicSchema = new Schema<ITopic>({
   subtopics: [SubtopicSchema]
 });
 
-const RoadmapSchema = new Schema<IRoadmap>({
-  subject: { type: String, required: true, index: true },
-  topics: [TopicSchema],
-  source: { type: String, enum: ['hardcoded', 'ai'], default: 'ai' },
-  createdAt: { type: Date, default: Date.now },
-  updatedAt: { type: Date, default: Date.now }
-});
+const RoadmapSchema = new Schema<IRoadmap>(
+  {
+    subject: {
+      type: String,
+      required: true,
+      index: true,
+      trim: true
+    },
 
+    topics: [TopicSchema],
+
+    source: {
+      type: String,
+      enum: ['hardcoded', 'ai'],
+      default: 'ai'
+    }
+  },
+  {
+    timestamps: true
+  }
+);
+
+// ensure only one roadmap per subject
 RoadmapSchema.index({ subject: 1 }, { unique: true });
 
 export default mongoose.model<IRoadmap>('Roadmap', RoadmapSchema);
