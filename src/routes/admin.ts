@@ -113,7 +113,7 @@ router.get('/stats', authenticateAdmin, async (req: Request, res: Response) => {
 
     // Top 10 most completed topics across all users
     const topCompletedTopics = await UserTopicProgress.aggregate([
-      { $match: { completed: true, subtopicTitle: null } },
+      { $match: { completed: true, subtopicTitle: '' } },
       { $group: { _id: { subject: '$subject', topic: '$topicTitle' }, completions: { $sum: 1 } } },
       { $sort: { completions: -1 } },
       { $limit: 10 },
@@ -122,7 +122,7 @@ router.get('/stats', authenticateAdmin, async (req: Request, res: Response) => {
 
     // Top 10 most completed subtopics
     const topCompletedSubtopics = await UserTopicProgress.aggregate([
-      { $match: { completed: true, subtopicTitle: { $ne: null } } },
+      { $match: { completed: true, subtopicTitle: { $ne: '' } } },
       { $group: { _id: { subject: '$subject', topic: '$topicTitle', subtopic: '$subtopicTitle' }, completions: { $sum: 1 } } },
       { $sort: { completions: -1 } },
       { $limit: 10 },

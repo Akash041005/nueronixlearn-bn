@@ -352,7 +352,7 @@ export async function createUserSubject(
     const existingTopicCount = await UserTopicProgress.countDocuments({
       userId,
       subject: normalizedSubject,
-      subtopicTitle: null,  // only count top-level topic rows
+      subtopicTitle: ''  // only count top-level topic rows
     });
 
     if (existingTopicCount >= MIN_VALID_TOPICS) {
@@ -430,13 +430,13 @@ async function createUserTopicProgress(
   const ops: any[] = [];
 
   for (const topic of topics) {
-    // Topic-level row — subtopicTitle stored as undefined (omitted), queried with {$exists:false} OR null
+    // Topic-level row — use empty string as placeholder for subtopicTitle to avoid null issues
     ops.push({
       updateOne: {
-        filter: { userId, subject, topicTitle: topic.title, subtopicTitle: { $in: [null, undefined] } },
+        filter: { userId, subject, topicTitle: topic.title, subtopicTitle: '' },
         update: {
           $set:         { order: topic.order, completed: false },
-          $setOnInsert: { userId, subject, topicTitle: topic.title, createdAt: now },
+          $setOnInsert: { userId, subject, topicTitle: topic.title, subtopicTitle: '', createdAt: now },
         },
         upsert: true,
       },
@@ -480,18 +480,18 @@ export async function getRoadmapProgress(
 ): Promise<{ topics: any[]; subtopics: any[] }> {
   const normalizedSubject = subject.toLowerCase().trim();
   
-  // Topic rows have subtopicTitle null or missing
+  // Topic rows have subtopicTitle as empty string (not null)
   const topics = await UserTopicProgress.find({
     userId,
     subject: normalizedSubject,
-    $or: [{ subtopicTitle: null }, { subtopicTitle: { $exists: false } }]
+    subtopicTitle: ''
   }).sort({ order: 1 });
 
   // Subtopic rows have an actual string value in subtopicTitle
   const subtopics = await UserTopicProgress.find({
     userId,
     subject: normalizedSubject,
-    subtopicTitle: { $nin: [null, undefined], $exists: true, $ne: '' }
+    subtopicTitle: { $ne: '', $exists: true }
   }).sort({ order: 1 });
 
   return { topics, subtopics };
@@ -506,7 +506,7 @@ export async function getNextIncompleteTopic(
   const topic = await UserTopicProgress.findOne({
     userId,
     subject: normalizedSubject,
-    $or: [{ subtopicTitle: null }, { subtopicTitle: { $exists: false } }],
+    subtopicTitle: '',
     completed: false
   }).sort({ order: 1 });
 
@@ -524,7 +524,7 @@ export async function getNextIncompleteSubtopic(
     userId,
     subject: normalizedSubject,
     topicTitle,
-    subtopicTitle: { $ne: null },
+    subtopicTitle: { $ne: '' },
     completed: false
   }).sort({ order: 1 });
 
@@ -551,7 +551,7 @@ export async function markSubtopicComplete(
     userId,
     subject: normalizedSubject,
     topicTitle,
-    subtopicTitle: { $ne: null },
+    subtopicTitle: { $ne: '' },
     completed: false
   });
 
@@ -568,7 +568,7 @@ export async function markTopicComplete(
   const normalizedSubject = subject.toLowerCase().trim();
   
   const completed = await UserTopicProgress.findOneAndUpdate(
-    { userId, subject: normalizedSubject, topicTitle, subtopicTitle: null, completed: false },
+    { userId, subject: normalizedSubject, topicTitle, subtopicTitle: '', completed: false },
     { completed: true, completedAt: new Date() },
     { new: true }
   );
@@ -589,7 +589,7 @@ export async function generateAndStoreSubtopics(
     userId,
     subject: normalizedSubject,
     topicTitle,
-    subtopicTitle: { $ne: null }
+    subtopicTitle: { $ne: '' }
   });
 
   if (existingSubtopics.length > 0) {
