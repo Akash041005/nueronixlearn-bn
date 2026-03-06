@@ -18,6 +18,7 @@ import diaryRoutes from './routes/diary';
 import chatbotRoutes from './routes/chatbot';
 import behaviorRoutes from './routes/behavior';
 import adminRoutes from './routes/admin';
+import topicsRoutes from './routes/topics';
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -33,12 +34,32 @@ app.use((req, res, next) => {
   next();
 });
 
-const limiter = rateLimit({
+// General limit: 500 requests per 15 min per IP (covers normal navigation)
+const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100,
+  max: 500,
+  standardHeaders: true,
+  legacyHeaders: false,
   message: { error: 'Too many requests, please try again later.' }
 });
-app.use('/api/', limiter);
+
+// Strict limit: 30 requests per 15 min for expensive AI generation endpoints
+const aiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many AI requests, please wait a moment and try again.' }
+});
+
+app.use('/api/', generalLimiter);
+
+// Apply the stricter AI limiter to routes that call Gemini or YouTube
+app.use('/api/topics/add-subject', aiLimiter);
+app.use('/api/topics/resources', aiLimiter);
+app.use('/api/chatbot/chat', aiLimiter);
+app.use('/api/ml/recommendations', aiLimiter);
+app.use('/api/ml/upload-pdf', aiLimiter);
 
 app.use('/api/auth', authRoutes);
 app.use('/api/courses', courseRoutes);
@@ -50,6 +71,7 @@ app.use('/api/diary', diaryRoutes);
 app.use('/api/chatbot', chatbotRoutes);
 app.use('/api/behavior', behaviorRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/topics', topicsRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

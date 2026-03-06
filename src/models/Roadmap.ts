@@ -8,12 +8,11 @@ export interface ISubtopic {
 export interface ITopic {
   title: string;
   order: number;
-  subtopics?: ISubtopic[];
+  subtopics: ISubtopic[];
 }
 
-export interface ITopicLibrary extends Document {
+export interface IRoadmap extends Document {
   subject: string;
-  normalizedSubject: string;
   topics: ITopic[];
   source: 'hardcoded' | 'ai';
   createdAt: Date;
@@ -31,13 +30,14 @@ const TopicSchema = new Schema<ITopic>({
   subtopics: [SubtopicSchema]
 });
 
-const TopicLibrarySchema = new Schema<ITopicLibrary>({
-  subject: { type: String, required: true },
-  normalizedSubject: { type: String, required: true, unique: true, index: true },
+const RoadmapSchema = new Schema<IRoadmap>({
+  subject: { type: String, required: true, index: true },
   topics: [TopicSchema],
   source: { type: String, enum: ['hardcoded', 'ai'], default: 'ai' },
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now }
 });
 
-export default mongoose.model<ITopicLibrary>('TopicLibrary', TopicLibrarySchema);
+RoadmapSchema.index({ subject: 1 }, { unique: true });
+
+export default mongoose.model<IRoadmap>('Roadmap', RoadmapSchema);

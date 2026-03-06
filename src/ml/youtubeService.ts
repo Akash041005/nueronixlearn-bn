@@ -12,15 +12,17 @@ export interface VideoRecommendation {
 const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY;
 
 async function searchYouTubeAPI(query: string): Promise<VideoRecommendation[]> {
-  if (!YOUTUBE_API_KEY || YOUTUBE_API_KEY.startsWith('AIza')) {
+  if (!YOUTUBE_API_KEY) {
+    console.log('No YouTube API key configured');
     return [];
   }
 
   try {
+    console.log('Searching YouTube API for:', query);
     const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&maxResults=5&q=${encodeURIComponent(query)}&type=video&key=${YOUTUBE_API_KEY}`;
     
     const response = await fetch(url);
-    const data = await response.json();
+    const data = await response.json() as any;
 
     if (data.error) {
       console.error('YouTube API error:', data.error);
@@ -36,6 +38,7 @@ async function searchYouTubeAPI(query: string): Promise<VideoRecommendation[]> {
       url: `https://www.youtube.com/watch?v=${item.id.videoId}`
     }));
 
+    console.log('YouTube API returned:', videos.length, 'videos');
     return videos;
   } catch (error) {
     console.error('YouTube search error:', error);

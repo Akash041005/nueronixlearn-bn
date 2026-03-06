@@ -5,6 +5,7 @@ import User from '../models/User';
 import WeakTopic from '../models/WeakTopic';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { createUserTodos } from '../ml/topicTodoService';
+import { createUserSubject } from '../ml/roadmapService';
 
 const router = Router();
 
@@ -401,6 +402,41 @@ router.put('/phone', authenticate, async (req: AuthRequest, res: Response) => {
   }
 });
 
+// Upload / update avatar (accepts base64 data-URL, max ~2 MB after base64)
+router.put('/avatar', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const { avatar } = req.body;
+    if (!avatar || typeof avatar !== 'string') {
+      return res.status(400).json({ error: 'avatar field (base64 data-URL) is required' });
+    }
+    // Rough size guard — base64 of 2 MB binary ≈ 2.7 MB string
+    if (avatar.length > 3_000_000) {
+      return res.status(400).json({ error: 'Image too large. Max 2 MB.' });
+    }
+    const user = await User.findById(req.user?._id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    user.avatar = avatar;
+    await user.save();
+
+    res.json({
+      message: 'Avatar updated',
+      avatar:  user.avatar,
+      user: {
+        id:    user._id,
+        email: user.email,
+        name:  user.name,
+        role:  user.role,
+        avatar: user.avatar,
+        onboardingCompleted: user.onboardingCompleted,
+        profile: user.profile
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to update avatar' });
+  }
+});
+
 router.put('/complete-onboarding', authenticate, async (req: AuthRequest, res: Response) => {
   try {
     const { error, value } = profileSchema.validate(req.body);
@@ -413,7 +449,7 @@ router.put('/complete-onboarding', authenticate, async (req: AuthRequest, res: R
     user.onboardingCompleted = true;
     await user.save();
 
-    // Create weak topics and todos from user's difficult subjects
+    // Create weak topics, todos, and Study Plan roadmaps from user's difficult subjects
     const weakAreas = value.weakAreas || [];
     const subjectInterests = value.subjectInterests || [];
     
@@ -429,6 +465,18 @@ router.put('/complete-onboarding', authenticate, async (req: AuthRequest, res: R
       'Economics': ['Basic Economics', 'Microeconomics', 'Macroeconomics'],
       'Business Studies': ['Business Basics', 'Management', 'Marketing']
     };
+
+    // Auto-seed Study Plan with AI roadmaps for each weak area
+    const allSubjectsToSeed = [...new Set([...weakAreas, ...subjectInterests])];
+    for (const subject of allSubjectsToSeed) {
+      try {
+        await createUserSubject(user._id.toString(), subject);
+        console.log(`Auto-seeded study plan for subject: ${subject}`);
+      } catch (seedErr) {
+        console.error(`Failed to seed study plan for ${subject}:`, seedErr);
+        // Non-fatal — continue with other subjects
+      }
+    }
 
     for (const subject of weakAreas) {
       // Create weak topic

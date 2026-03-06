@@ -1,4 +1,4 @@
-import TopicLibrary from '../models/TopicLibrary';
+import TopicLibrary, { ITopic } from '../models/TopicLibrary';
 import UserTodo, { IUserTodo } from '../models/UserTodo';
 import keyManager from './keyManager';
 

@@ -8,6 +8,8 @@ import Exam from '../models/Exam';
 import Recommendation from '../models/Recommendation';
 import Feedback from '../models/Feedback';
 import UserProgress from '../models/UserProgress';
+import UserTopicProgress from '../models/UserTopicProgress';
+import Subject from '../models/Subject';
 
 const router = Router();
 
@@ -72,16 +74,69 @@ const authenticateAdmin = (req: Request, res: Response, next: Function) => {
 
 router.get('/stats', authenticateAdmin, async (req: Request, res: Response) => {
   try {
-    const [totalUsers, totalTeachers, totalStudents, totalCourses, totalExams, totalEnrollments] = await Promise.all([
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+    const [
+      totalUsers,
+      totalTeachers,
+      totalStudents,
+      totalCourses,
+      totalExams,
+      totalEnrollments,
+      activeUsersWeek,
+      activeUsersMonth,
+      blockedUsers,
+      newUsersWeek,
+      totalSubjects,
+    ] = await Promise.all([
       User.countDocuments(),
       User.countDocuments({ role: 'teacher' }),
       User.countDocuments({ role: 'student' }),
       Course.countDocuments(),
       Exam.countDocuments(),
-      UserProgress.countDocuments()
+      UserProgress.countDocuments(),
+      User.countDocuments({ lastLogin: { $gte: sevenDaysAgo } }),
+      User.countDocuments({ lastLogin: { $gte: thirtyDaysAgo } }),
+      User.countDocuments({ isActive: false }),
+      User.countDocuments({ createdAt: { $gte: sevenDaysAgo } }),
+      Subject.countDocuments(),
     ]);
 
-    const recentUsers = await User.find().sort({ createdAt: -1 }).limit(5).select('-password');
+    // Top 10 most studied subjects (by number of unique learners)
+    const topSubjectsAgg = await Subject.aggregate([
+      { $group: { _id: '$subject', learnerCount: { $sum: 1 } } },
+      { $sort: { learnerCount: -1 } },
+      { $limit: 10 },
+      { $project: { subject: '$_id', learnerCount: 1, _id: 0 } },
+    ]);
+
+    // Top 10 most completed topics across all users
+    const topCompletedTopics = await UserTopicProgress.aggregate([
+      { $match: { completed: true, subtopicTitle: null } },
+      { $group: { _id: { subject: '$subject', topic: '$topicTitle' }, completions: { $sum: 1 } } },
+      { $sort: { completions: -1 } },
+      { $limit: 10 },
+      { $project: { subject: '$_id.subject', topic: '$_id.topic', completions: 1, _id: 0 } },
+    ]);
+
+    // Top 10 most completed subtopics
+    const topCompletedSubtopics = await UserTopicProgress.aggregate([
+      { $match: { completed: true, subtopicTitle: { $ne: null } } },
+      { $group: { _id: { subject: '$subject', topic: '$topicTitle', subtopic: '$subtopicTitle' }, completions: { $sum: 1 } } },
+      { $sort: { completions: -1 } },
+      { $limit: 10 },
+      { $project: { subject: '$_id.subject', topic: '$_id.topic', subtopic: '$_id.subtopic', completions: 1, _id: 0 } },
+    ]);
+
+    // User growth: registrations per day for last 14 days
+    const userGrowth = await User.aggregate([
+      { $match: { createdAt: { $gte: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000) } } },
+      { $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } }, count: { $sum: 1 } } },
+      { $sort: { _id: 1 } },
+    ]);
+
+    const recentUsers   = await User.find().sort({ createdAt: -1 }).limit(10).select('-password');
     const recentCourses = await Course.find().sort({ createdAt: -1 }).limit(5);
 
     res.json({
@@ -91,12 +146,22 @@ router.get('/stats', authenticateAdmin, async (req: Request, res: Response) => {
         totalStudents,
         totalCourses,
         totalExams,
-        totalEnrollments
+        totalEnrollments,
+        activeUsersWeek,
+        activeUsersMonth,
+        blockedUsers,
+        newUsersWeek,
+        totalSubjects,
       },
+      topSubjects:         topSubjectsAgg,
+      topCompletedTopics,
+      topCompletedSubtopics,
+      userGrowth,
       recentUsers,
-      recentCourses
+      recentCourses,
     });
   } catch (err) {
+    console.error('Admin stats error:', err);
     res.status(500).json({ error: 'Failed to fetch stats' });
   }
 });
@@ -159,6 +224,39 @@ router.put('/users/:id/role', authenticateAdmin, async (req: Request, res: Respo
     res.json({ message: 'Role updated', user });
   } catch (err) {
     res.status(500).json({ error: 'Failed to update role' });
+  }
+});
+
+// Block or unblock a user  (body: { blocked: true|false })
+router.put('/users/:id/block', authenticateAdmin, async (req: Request, res: Response) => {
+  try {
+    const blocked = Boolean(req.body.blocked);
+    const user = await User.findByIdAndUpdate(
+      req.params.id,
+      { isActive: !blocked },
+      { new: true }
+    ).select('-password');
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    res.json({ message: blocked ? 'User blocked' : 'User unblocked', user });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to update user status' });
+  }
+});
+
+// Update user name / email by admin
+router.put('/users/:id', authenticateAdmin, async (req: Request, res: Response) => {
+  try {
+    const { name, email, role } = req.body;
+    const update: any = {};
+    if (name)  update.name  = name;
+    if (email) update.email = email.toLowerCase();
+    if (role && ['student', 'teacher', 'admin'].includes(role)) update.role = role;
+
+    const user = await User.findByIdAndUpdate(req.params.id, update, { new: true }).select('-password');
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    res.json({ message: 'User updated', user });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to update user' });
   }
 });
 
