@@ -6,6 +6,14 @@ export interface IAdmin extends Document {
   password: string;
   email: string;
   isSuperAdmin: boolean;
+  permissions: {
+    manageUsers: boolean;
+    manageCourses: boolean;
+    manageExams: boolean;
+    manageAdmins: boolean;
+    viewAnalytics: boolean;
+    manageContent: boolean;
+  };
   createdAt: Date;
   comparePassword(candidatePassword: string): Promise<boolean>;
 }
@@ -15,6 +23,14 @@ const adminSchema = new Schema<IAdmin>({
   password: { type: String, required: true },
   email: { type: String, required: true, unique: true },
   isSuperAdmin: { type: Boolean, default: false },
+  permissions: {
+    manageUsers: { type: Boolean, default: false },
+    manageCourses: { type: Boolean, default: false },
+    manageExams: { type: Boolean, default: false },
+    manageAdmins: { type: Boolean, default: false },
+    viewAnalytics: { type: Boolean, default: false },
+    manageContent: { type: Boolean, default: false }
+  },
   createdAt: { type: Date, default: Date.now }
 });
 

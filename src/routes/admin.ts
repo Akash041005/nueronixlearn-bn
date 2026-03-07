@@ -4,7 +4,7 @@ import Joi from 'joi';
 import Admin from '../models/Admin';
 import User from '../models/User';
 import Course from '../models/Course';
-import Exam from '../models/Exam';
+import { Exam } from '../models/Exam';
 import Recommendation from '../models/Recommendation';
 import Feedback from '../models/Feedback';
 import UserProgress from '../models/UserProgress';
@@ -78,9 +78,9 @@ router.get('/stats', authenticateAdmin, async (req: Request, res: Response) => {
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
     const [
-      totalUsers,
-      totalTeachers,
-      totalStudents,
+      totalAdmins,
+      activeTeachers,
+      activeStudents,
       totalCourses,
       totalExams,
       totalEnrollments,
@@ -90,9 +90,9 @@ router.get('/stats', authenticateAdmin, async (req: Request, res: Response) => {
       newUsersWeek,
       totalSubjects,
     ] = await Promise.all([
-      User.countDocuments(),
-      User.countDocuments({ role: 'teacher' }),
-      User.countDocuments({ role: 'student' }),
+      Admin.countDocuments(),
+      User.countDocuments({ role: 'teacher', isActive: true }),
+      User.countDocuments({ role: 'student', isActive: true }),
       Course.countDocuments(),
       Exam.countDocuments(),
       UserProgress.countDocuments(),
@@ -102,6 +102,8 @@ router.get('/stats', authenticateAdmin, async (req: Request, res: Response) => {
       User.countDocuments({ createdAt: { $gte: sevenDaysAgo } }),
       Subject.countDocuments(),
     ]);
+
+    const totalUsers = activeTeachers + activeStudents;
 
     // Top 10 most studied subjects (by number of unique learners)
     const topSubjectsAgg = await Subject.aggregate([
@@ -142,8 +144,9 @@ router.get('/stats', authenticateAdmin, async (req: Request, res: Response) => {
     res.json({
       stats: {
         totalUsers,
-        totalTeachers,
-        totalStudents,
+        totalAdmins,
+        totalTeachers: activeTeachers,
+        totalStudents: activeStudents,
         totalCourses,
         totalExams,
         totalEnrollments,
@@ -454,14 +457,36 @@ router.post('/add', authenticateAdmin, async (req: Request, res: Response) => {
       return res.status(403).json({ error: 'Only super admins can add admins' });
     }
 
-    const { username, password, email, isSuperAdmin } = req.body;
+    const { username, password, email, isSuperAdmin, permissions } = req.body;
     const existing = await Admin.findOne({ $or: [{ username }, { email }] });
     if (existing) return res.status(400).json({ error: 'Username or email already exists' });
 
-    const admin = new Admin({ username, password, email, isSuperAdmin: isSuperAdmin || false });
+    const adminPermissions = isSuperAdmin ? {
+      manageUsers: true,
+      manageCourses: true,
+      manageExams: true,
+      manageAdmins: true,
+      viewAnalytics: true,
+      manageContent: true
+    } : (permissions || {
+      manageUsers: false,
+      manageCourses: false,
+      manageExams: false,
+      manageAdmins: false,
+      viewAnalytics: false,
+      manageContent: false
+    });
+
+    const admin = new Admin({ 
+      username, 
+      password, 
+      email, 
+      isSuperAdmin: isSuperAdmin || false,
+      permissions: adminPermissions
+    });
     await admin.save();
 
-    res.status(201).json({ message: 'Admin created', admin: { id: admin._id, username, email, isSuperAdmin } });
+    res.status(201).json({ message: 'Admin created', admin: { id: admin._id, username, email, isSuperAdmin: admin.isSuperAdmin, permissions: admin.permissions } });
   } catch (err) {
     res.status(500).json({ error: 'Failed to create admin' });
   }
