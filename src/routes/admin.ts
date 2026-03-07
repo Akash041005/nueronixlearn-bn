@@ -202,15 +202,105 @@ router.get('/users', authenticateAdmin, async (req: Request, res: Response) => {
 
 router.get('/users/:id', authenticateAdmin, async (req: Request, res: Response) => {
   try {
+    const mongoose = require('mongoose');
+    const userId = new mongoose.Types.ObjectId(req.params.id);
+
     const user = await User.findById(req.params.id).select('-password');
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    const progress = await UserProgress.find({ userId: req.params.id });
-    const recommendations = await Recommendation.find({ userId: req.params.id });
+    let progress = [];
+    let recommendations = [];
+    let userProgress = [];
+    let userExams = [];
+    let recentActivity = [];
+    let userTodos = [];
 
-    res.json({ user, progress, recommendations });
+    try {
+      progress = await UserProgress.find({ userId: req.params.id });
+    } catch (e) { console.error('Progress error:', e.message); }
+
+    try {
+      recommendations = await Recommendation.find({ userId: req.params.id });
+    } catch (e) { console.error('Recommendation error:', e.message); }
+
+    try {
+      userProgress = await UserProgress.find({ userId: req.params.id })
+        .populate('courseId', 'title category thumbnail enrollments');
+    } catch (e) { console.error('UserProgress error:', e.message); }
+
+    try {
+      const Exam = require('../models/Exam');
+      userExams = await Exam.find({ 'submissions.userId': req.params.id })
+        .select('title questions settings createdAt');
+    } catch (e) { console.error('Exam error:', e.message); }
+
+    try {
+      recentActivity = await UserProgress.find({ userId: req.params.id })
+        .sort({ updatedAt: -1 })
+        .limit(10)
+        .populate('courseId', 'title');
+    } catch (e) { console.error('RecentActivity error:', e.message); }
+
+    try {
+      const UserTodo = require('../models/UserTodo');
+      userTodos = await UserTodo.find({ userId: req.params.id });
+    } catch (e) { console.error('UserTodo error:', e.message); }
+
+    // Get Weak Topics
+    let weakTopics = [];
+    try {
+      const WeakTopic = require('../models/WeakTopic');
+      weakTopics = await WeakTopic.find({ userId: req.params.id });
+    } catch (e) { console.error('WeakTopic error:', e.message); }
+
+    // Get AI Usage
+    let aiUsage = null;
+    try {
+      const AIUsage = require('../models/AIUsage');
+      aiUsage = await AIUsage.findOne({ userId: req.params.id });
+    } catch (e) { console.error('AIUsage error:', e.message); }
+
+    // Get Diary entries count
+    let diaryCount = 0;
+    try {
+      const Diary = require('../models/Diary');
+      diaryCount = await Diary.countDocuments({ userId: req.params.id });
+    } catch (e) { console.error('Diary error:', e.message); }
+
+    // Calculate stats
+    const completedCourses = progress.filter((p: any) => p.completed).length;
+    const totalTimeSpent = progress.reduce((acc: number, p: any) => acc + (p.timeSpent || 0), 0);
+    const averageScore = progress.length > 0 
+      ? progress.reduce((acc: number, p: any) => acc + (p.score || 0), 0) / progress.length 
+      : 0;
+
+    res.json({ 
+      user, 
+      progress, 
+      recommendations,
+      enrolledCourses: userProgress,
+      examResults: userExams,
+      recentActivity,
+      todos: userTodos,
+      weakTopics,
+      aiUsage,
+      diaryCount,
+      stats: {
+        completedCourses,
+        totalTimeSpent,
+        averageScore: Math.round(averageScore),
+        totalProgress: progress.length,
+        completedTodos: userTodos.filter((t: any) => t.completed).length,
+        totalTodos: userTodos.length,
+        totalWeakTopics: weakTopics.length,
+        completedWeakTopics: weakTopics.filter((t: any) => t.completed).length,
+        totalExams: userExams.length,
+        totalRecommendations: recommendations.length
+      }
+    });
   } catch (err) {
-    res.status(500).json({ error: 'Failed to fetch user' });
+    console.error('Error fetching user:', err);
+    res.status(500).json({ error: 'Failed to fetch user', details: err.message });
   }
 });
 
