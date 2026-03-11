@@ -1,6 +1,5 @@
 import { Router, Response } from 'express';
 import Joi from 'joi';
-import multer from 'multer';
 import Course from '../models/Course';
 import User from '../models/User';
 import UserProgress from '../models/UserProgress';
@@ -10,14 +9,8 @@ import { getGeminiRecommendations, handleUserFeedback } from '../ml/recommendati
 import { analyzeResponse } from '../ml/nlpAnalyzer';
 import { predictCognitiveLoad, getDifficultySuggestion, analyzeCognitivePattern } from '../ml/cognitiveLoad';
 import { detectIntent, validateRecommendationSafety } from '../ml/geminiService';
-import { processPDF, addTopicsToStudyPlan } from '../ml/pdfService';
 
 const router = Router();
-
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 }
-});
 
 const feedbackSchema = Joi.object({
   feedback: Joi.string().min(1).max(500).required(),
@@ -136,49 +129,6 @@ router.post('/cognitive-load', authenticate, async (req: AuthRequest, res: Respo
     });
   } catch (err) {
     res.status(500).json({ error: 'Failed to predict cognitive load' });
-  }
-});
-
-router.post('/upload-pdf', authenticate, upload.single('pdf'), async (req: AuthRequest, res: Response) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ error: 'No PDF file uploaded' });
-    }
-
-    const { subject } = req.body;
-    const subjectName = subject || 'general';
-
-    const result = await processPDF(req.file.buffer, req.file.originalname);
-
-    if (result.topics.length > 0) {
-      const { added, duplicates } = await addTopicsToStudyPlan(
-        req.user!._id.toString(),
-        subjectName,
-        result.topics
-      );
-
-      res.json({
-        message: 'PDF processed successfully',
-        summary: result.summary,
-        keyPoints: result.keyPoints,
-        topics: result.topics,
-        questions: result.questions,
-        addedToStudyPlan: added,
-        duplicates,
-        cached: result.cached
-      });
-    } else {
-      res.json({
-        message: 'PDF processed but no topics found',
-        summary: result.summary,
-        keyPoints: result.keyPoints,
-        topics: [],
-        questions: result.questions
-      });
-    }
-  } catch (err) {
-    console.error('PDF upload error:', err);
-    res.status(500).json({ error: 'Failed to process PDF' });
   }
 });
 

@@ -58,8 +58,6 @@ app.use('/api/', generalLimiter);
 app.use('/api/topics/add-subject', aiLimiter);
 app.use('/api/topics/resources', aiLimiter);
 app.use('/api/chatbot/chat', aiLimiter);
-app.use('/api/ml/recommendations', aiLimiter);
-app.use('/api/ml/upload-pdf', aiLimiter);
 
 app.use('/api/auth', authRoutes);
 app.use('/api/courses', courseRoutes);
