@@ -75,10 +75,10 @@ router.post('/submit-answer', authenticate, async (req: AuthRequest, res: Respon
     const course = await Course.findById(courseId);
     if (!course) return res.status(404).json({ error: 'Course not found' });
 
-    const assessment = course.assessments.id(assessmentId);
+    const assessment = course.assessments.find((a: any) => a._id.toString() === assessmentId);
     if (!assessment) return res.status(404).json({ error: 'Assessment not found' });
 
-    const question = assessment.questions.id(questionId);
+    const question = assessment.questions.find((q: any) => q._id.toString() === questionId);
     if (!question) return res.status(404).json({ error: 'Question not found' });
 
     const isCorrect = answer.toLowerCase().trim() === question.correctAnswer.toLowerCase().trim();

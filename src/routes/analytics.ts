@@ -195,7 +195,7 @@ router.get('/daily-progress', authenticate, async (req: AuthRequest, res: Respon
     const userId = req.user?._id;
     const progress = await UserProgress.find({ userId });
     
-    const last7Days: { date: string; progress: number; timeSpent: number }[] = [];
+    const last7Days: { date: string; name: string; progress: number; timeSpent: number }[] = [];
     
     for (let i = 6; i >= 0; i--) {
       const date = new Date();
@@ -227,6 +227,7 @@ router.get('/daily-progress', authenticate, async (req: AuthRequest, res: Respon
       
       const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
       last7Days.push({
+        date: dateStr,
         name: dayName,
         progress: dayProgress,
         timeSpent: Math.round(dayTimeSpent / 60)

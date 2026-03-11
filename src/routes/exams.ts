@@ -179,7 +179,7 @@ router.post('/:id/start', authenticate, async (req: AuthRequest, res: Response) 
     }
 
     const questionsToSend = questions.map(q => ({
-      questionId: q._id?.toString() || q.questionId?.toString() || Math.random().toString(36).substr(2, 9),
+      questionId: q.questionId?.toString() || Math.random().toString(36).substr(2, 9),
       text: q.text,
       type: q.type,
       options: exam.settings.shuffleOptions ? q.options?.sort(() => Math.random() - 0.5) : q.options,
@@ -207,7 +207,7 @@ router.post('/:id/submit', authenticate, async (req: AuthRequest, res: Response)
     let totalPoints = 0;
     let earnedPoints = 0;
     const gradedAnswers = exam.questions.map(q => {
-      const questionId = q._id?.toString() || q.questionId?.toString();
+      const questionId = q.questionId?.toString();
       const userAnswer = answers.find((a: any) => 
         a.questionId?.toString() === questionId ||
         a.questionId === questionId
@@ -266,11 +266,11 @@ router.post('/:id/submit', authenticate, async (req: AuthRequest, res: Response)
         passingScore: exam.settings.passingScore,
         showResults: exam.settings.showResults,
         questions: exam.settings.showResults ? exam.questions.map(q => ({
-          questionId: q._id?.toString() || q.questionId?.toString(),
+          questionId: q.questionId?.toString(),
           text: q.text,
           correctAnswer: q.correctAnswer,
           explanation: q.explanation,
-          userAnswer: gradedAnswers.find(a => a.questionId === (q._id?.toString() || q.questionId?.toString()))?.answer
+          userAnswer: gradedAnswers.find(a => a.questionId === q.questionId?.toString())?.answer
         })) : []
       }
     });

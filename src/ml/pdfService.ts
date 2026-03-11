@@ -1,4 +1,4 @@
-import pdfParse from 'pdf-parse';
+const pdfParse = require('pdf-parse');
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
 function getGeminiClient(): GoogleGenerativeAI | null {

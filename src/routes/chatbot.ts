@@ -162,7 +162,7 @@ router.post('/add-weak-topic', authenticate, async (req: AuthRequest, res: Respo
       return res.status(400).json({ error: 'Topic and subject required' });
     }
 
-    await addWeakTopicFromChat(req.user!._id, topic, subject);
+    await addWeakTopicFromChat(req.user!._id.toString(), topic, subject);
     
     await createUserTodos(req.user!._id.toString(), subject, topic);
 

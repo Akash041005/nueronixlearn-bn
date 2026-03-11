@@ -46,6 +46,7 @@ export interface ICourse extends Document {
   category: string;
   subcategory?: string;
   tags: string[];
+  concepts: string[];
   modules: IModule[];
   assessments: IAssessment[];
   prerequisites: mongoose.Types.ObjectId[];
@@ -123,6 +124,7 @@ const courseSchema = new Schema<ICourse>({
   category: { type: String, required: true },
   subcategory: String,
   tags: [String],
+  concepts: [String],
   modules: [moduleSchema],
   assessments: [assessmentSchema],
   prerequisites: [{ type: Schema.Types.ObjectId, ref: 'Course' }],
