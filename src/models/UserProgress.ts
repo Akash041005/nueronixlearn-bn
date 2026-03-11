@@ -5,6 +5,8 @@ export interface IUserProgress extends Document {
   courseId: mongoose.Types.ObjectId;
   completedModules: mongoose.Types.ObjectId[];
   currentModule: mongoose.Types.ObjectId;
+  score: number;
+  completed: boolean;
   assessmentScores: Array<{
     assessmentId: mongoose.Types.ObjectId;
     score: number;
@@ -25,6 +27,8 @@ const userProgressSchema = new Schema<IUserProgress>({
   courseId: { type: Schema.Types.ObjectId, ref: 'Course', required: true },
   completedModules: [{ type: Schema.Types.ObjectId }],
   currentModule: { type: Schema.Types.ObjectId },
+  score: { type: Number, default: 0 },
+  completed: { type: Boolean, default: false },
   assessmentScores: [{
     assessmentId: { type: Schema.Types.ObjectId },
     score: { type: Number, default: 0 },
