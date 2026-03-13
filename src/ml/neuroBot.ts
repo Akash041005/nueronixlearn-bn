@@ -12,8 +12,28 @@ export interface ChatContext {
   userId: string;
   userProfile: {
     name: string;
-    weakAreas: string[];
+    weakAreas?: string[];
+    strongTopics?: string[];
+    subjects?: string[];
+    pacePreference?: string;
+    learningPace?: string;
+    experienceLevel?: string;
+    preferredLearningStyle?: string;
+    learningGoals?: string[];
+    currentPerformanceLevel?: string;
+    grade?: string;
+    subjectInterests?: string[];
   };
+  learningHistory?: Array<{
+    courseName: string;
+    progress: number;
+    score: number;
+  }>;
+  cognitiveLoadScore?: number;
+  currentStreak?: number;
+  completedCourses?: number;
+  enrolledCourses?: number;
+  intent?: string | null;
 }
 
 // ===============================
@@ -69,10 +89,33 @@ Would you like me to add this to your weak topics list?`,
   // -------------------------------
   // EVERYTHING ELSE → AI
   // -------------------------------
-  const prompt = `
-You are Neuro Bot, a helpful learning assistant.
+  const learningPace = context.userProfile.learningPace || context.userProfile.pacePreference || 'moderate';
+  const experienceLevel = context.userProfile.experienceLevel || 'beginner';
+  const weakTopics = context.userProfile.weakAreas || [];
+  const strongTopics = context.userProfile.strongTopics || [];
+  const subjects = context.userProfile.subjects || context.userProfile.subjectInterests || [];
 
-Student name: ${name}
+  let explanationStyle = 'simple';
+  if (learningPace === 'slow') explanationStyle = 'very detailed and slow-paced';
+  if (learningPace === 'fast') explanationStyle = 'concise and fast-paced';
+  if (experienceLevel === 'intermediate') explanationStyle = 'moderate detail';
+  if (experienceLevel === 'professional') explanationStyle = 'advanced and technical';
+
+  const prompt = `
+You are Neuro Bot, a personal AI teacher for NeuronixLearn platform.
+
+Student information:
+- Name: ${name}
+- Learning Pace: ${learningPace}
+- Experience Level: ${experienceLevel}
+- Subjects of interest: ${subjects.length > 0 ? subjects.join(', ') : 'Not specified'}
+- Strong topics: ${strongTopics.length > 0 ? strongTopics.join(', ') : 'None identified'}
+- Weak topics: ${weakTopics.length > 0 ? weakTopics.join(', ') : 'None identified'}
+
+Adapt your explanation style: ${explanationStyle}
+- If the topic is in weak topics → explain more simply with examples
+- If the topic is in strong topics → go deeper and challenge them
+- Keep explanations appropriate for ${experienceLevel} level
 
 Respond clearly and in simple language.
 Avoid harmful content.

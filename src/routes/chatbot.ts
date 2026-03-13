@@ -3,6 +3,7 @@ import Joi from 'joi';
 import User from '../models/User';
 import UserProgress from '../models/UserProgress';
 import WeakTopic from '../models/WeakTopic';
+import LearningProfile from '../models/LearningProfile';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { 
   generateChatResponse, 
@@ -98,6 +99,8 @@ router.post('/chat', authenticate, async (req: AuthRequest, res: Response) => {
             })
           );
 
+          const learningProfile = await LearningProfile.findOne({ userId: req.user!._id });
+
           const contextData = {
             userId: req.user!._id.toString(),
             userProfile: {
@@ -108,7 +111,11 @@ router.post('/chat', authenticate, async (req: AuthRequest, res: Response) => {
               preferredLearningStyle: user.profile.preferredLearningStyle || 'mixed',
               learningGoals: user.profile.learningGoals || [],
               currentPerformanceLevel: user.profile.currentPerformanceLevel || 'average',
-              pacePreference: user.profile.pacePreference || 'medium'
+              pacePreference: user.profile.pacePreference || 'medium',
+              learningPace: learningProfile?.learningPace || 'moderate',
+              experienceLevel: learningProfile?.experienceLevel || 'beginner',
+              strongTopics: learningProfile?.strongTopics || [],
+              subjects: learningProfile?.subjects || []
             },
             learningHistory: progressWithCourses,
             cognitiveLoadScore: user.cognitiveLoad || 50,

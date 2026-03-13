@@ -3,6 +3,7 @@ import Joi from 'joi';
 import jwt from 'jsonwebtoken';
 import User from '../models/User';
 import WeakTopic from '../models/WeakTopic';
+import LearningProfile from '../models/LearningProfile';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { createUserTodos } from '../ml/topicTodoService';
 import { createUserSubject } from '../ml/roadmapService';
@@ -14,7 +15,10 @@ const registerSchema = Joi.object({
   password: Joi.string().min(6).required(),
   name: Joi.string().min(2).required(),
   phone: Joi.string().allow('').optional(),
-  role: Joi.string().valid('student', 'teacher').default('student')
+  role: Joi.string().valid('student', 'teacher').default('student'),
+  learningPace: Joi.string().valid('slow', 'moderate', 'fast').default('moderate'),
+  experienceLevel: Joi.string().valid('beginner', 'intermediate', 'professional').default('beginner'),
+  subjects: Joi.array().items(Joi.string()).default([])
 });
 
 const loginSchema = Joi.object({
@@ -57,12 +61,12 @@ router.post('/register', async (req: Request, res: Response) => {
         name: value.name,
         role: value.role || 'student',
         profile: {
-          subjectInterests: [],
+          subjectInterests: value.subjects || [],
           weakAreas: [],
           preferredLearningStyle: 'mixed',
           learningGoals: [],
           currentPerformanceLevel: 'average',
-          pacePreference: 'medium',
+          pacePreference: value.learningPace || 'medium',
           languagePreference: 'en'
         },
         teacherProfile: value.role === 'teacher' ? {
@@ -93,7 +97,21 @@ router.post('/register', async (req: Request, res: Response) => {
       await user.save();
       console.log('User created successfully:', user._id);
 
-const token = jwt.sign(
+      const learningProfile = new LearningProfile({
+        userId: user._id,
+        learningPace: value.learningPace || 'moderate',
+        experienceLevel: value.experienceLevel || 'beginner',
+        subjects: value.subjects || [],
+        strongTopics: [],
+        weakTopics: [],
+        completedTopics: [],
+        recommendedTopics: []
+      });
+      
+      await learningProfile.save();
+      console.log('Learning profile created successfully:', learningProfile._id);
+
+      const token = jwt.sign(
         { userId: user._id },
         process.env.JWT_SECRET || 'nueronixlearn-secret',
         { expiresIn: '30d' }

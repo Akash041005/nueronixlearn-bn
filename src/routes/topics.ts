@@ -14,6 +14,7 @@ import {
 } from '../ml/roadmapService';
 import { getResourcesForSubtopic, getResourcesForTopic, getVideosOnly, getBlogsOnly } from '../ml/resourceService';
 import User from '../models/User';
+import LearningProfile from '../models/LearningProfile';
 
 const router = Router();
 
@@ -47,6 +48,12 @@ router.post('/add-subject', authenticate, async (req: AuthRequest, res: Response
     const userId = req.user!._id.toString();
 
     const { subjectDoc, topics } = await createUserSubject(userId, subject);
+
+    await LearningProfile.findOneAndUpdate(
+      { userId },
+      { $addToSet: { subjects: subject } },
+      { upsert: true }
+    );
 
     const progress = await getRoadmapProgress(userId, subject);
 
