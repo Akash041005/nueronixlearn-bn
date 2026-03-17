@@ -60,6 +60,7 @@ router.post('/register', async (req: Request, res: Response) => {
         phoneVerified: false,
         name: value.name,
         role: value.role || 'student',
+        onboardingCompleted: value.role === 'teacher' ? true : false,
         profile: {
           subjectInterests: value.subjects || [],
           weakAreas: [],
@@ -71,7 +72,7 @@ router.post('/register', async (req: Request, res: Response) => {
         },
         teacherProfile: value.role === 'teacher' ? {
           qualifications: [],
-          expertise: [],
+          expertise: value.subjects || [],
           experienceYears: 0,
           hourlyRate: 0,
           totalStudents: 0,
@@ -464,6 +465,31 @@ router.put('/complete-onboarding', authenticate, async (req: AuthRequest, res: R
 
     const user = await User.findById(req.user?._id);
     if (!user) return res.status(404).json({ error: 'User not found' });
+
+    if (user.role === 'teacher') {
+      user.profile = { 
+        ...user.profile, 
+        subjectInterests: value.subjectInterests || [] 
+      };
+      user.teacherProfile = {
+        ...user.teacherProfile,
+        expertise: value.subjectInterests || []
+      } as any;
+      user.onboardingCompleted = true;
+      await user.save();
+      
+      return res.json({ 
+        message: 'Onboarding completed successfully',
+        user: { 
+          id: user._id, 
+          email: user.email, 
+          name: user.name, 
+          role: user.role,
+          profile: user.profile,
+          onboardingCompleted: user.onboardingCompleted
+        }
+      });
+    }
 
     user.profile = { ...user.profile, ...value };
     user.onboardingCompleted = true;
