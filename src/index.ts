@@ -118,8 +118,10 @@ mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/nueronixl
   .then(() => console.log('Connected to MongoDB'))
   .catch((err) => console.error('MongoDB connection error:', err));
 
-app.listen(PORT, () => {
-  console.log(`NueronixLearn server running on port ${PORT}`);
+const PORT_NUM = parseInt(process.env.PORT || '5000', 10);
+
+app.listen(PORT_NUM, '0.0.0.0', () => {
+  console.log(`NueronixLearn server running on port ${PORT_NUM}`);
 });
 
 export default app;

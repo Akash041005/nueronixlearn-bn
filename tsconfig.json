@@ -4,9 +4,8 @@
     "module": "commonjs",
     "lib": ["ES2020"],
     "outDir": "./dist",
-    "rootDir": ".",
+    "rootDir": "./src",
 
-    /* 🔥 IMPORTANT CHANGES */
     "strict": false,
     "noImplicitAny": false,
     "noEmitOnError": false,
@@ -16,10 +15,9 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
 
-    /* Optional but safe */
     "declaration": false,
     "sourceMap": true
   },
-  "include": ["src/**/*", "api/**/*"],
+  "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]
 }
