@@ -66,7 +66,7 @@ router.post('/register', async (req: Request, res: Response) => {
           preferredLearningStyle: 'mixed',
           learningGoals: [],
           currentPerformanceLevel: 'average',
-          pacePreference: value.learningPace || 'medium',
+          pacePreference: value.learningPace === 'moderate' ? 'medium' : (value.learningPace || 'medium'),
           languagePreference: 'en'
         },
         teacherProfile: value.role === 'teacher' ? {
@@ -99,7 +99,7 @@ router.post('/register', async (req: Request, res: Response) => {
 
       const learningProfile = new LearningProfile({
         userId: user._id,
-        learningPace: value.learningPace || 'moderate',
+        learningPace: value.learningPace === 'moderate' ? 'medium' : (value.learningPace || 'medium'),
         experienceLevel: value.experienceLevel || 'beginner',
         subjects: value.subjects || [],
         strongTopics: [],
