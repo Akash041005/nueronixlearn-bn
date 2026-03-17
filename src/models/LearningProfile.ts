@@ -2,7 +2,7 @@ import mongoose, { Document, Schema } from 'mongoose';
 
 export interface ILearningProfile extends Document {
   userId: mongoose.Types.ObjectId;
-  learningPace: 'slow' | 'moderate' | 'fast';
+  learningPace: 'slow' | 'medium' | 'fast';
   experienceLevel: 'beginner' | 'intermediate' | 'professional';
   subjects: string[];
   strongTopics: string[];
@@ -17,8 +17,8 @@ const learningProfileSchema = new Schema<ILearningProfile>({
   userId: { type: Schema.Types.ObjectId, ref: 'User', required: true, unique: true },
   learningPace: { 
     type: String, 
-    enum: ['slow', 'moderate', 'fast'], 
-    default: 'moderate' 
+    enum: ['slow', 'medium', 'fast'], 
+    default: 'medium' 
   },
   experienceLevel: { 
     type: String, 

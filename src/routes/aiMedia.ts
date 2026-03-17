@@ -277,24 +277,29 @@ router.post("/generate-video", authenticate, async (req: AuthRequest, res: Respo
     const userId = req.user!._id;
     console.log(`[Video] Starting generation for: ${topic} in ${subject}`);
 
-    let learningProfile = await LearningProfile.findOne({ userId });
+    const user = await User.findById(userId);
+    let learningProfile = null;
     
-    if (!learningProfile) {
-      learningProfile = new LearningProfile({
-        userId,
-        learningPace: 'moderate',
-        experienceLevel: 'beginner',
-        subjects: [],
-        strongTopics: [],
-        weakTopics: [],
-        completedTopics: [],
-        recommendedTopics: []
-      });
-      await learningProfile.save();
+    if (user?.role === 'student') {
+      learningProfile = await LearningProfile.findOne({ userId });
+      
+      if (!learningProfile) {
+        learningProfile = new LearningProfile({
+          userId,
+          learningPace: 'medium',
+          experienceLevel: 'beginner',
+          subjects: [],
+          strongTopics: [],
+          weakTopics: [],
+          completedTopics: [],
+          recommendedTopics: []
+        });
+        await learningProfile.save();
+      }
     }
 
-    const learningPace = learningProfile.learningPace || "moderate";
-    const experienceLevel = learningProfile.experienceLevel || "beginner";
+    const learningPace = learningProfile?.learningPace || "medium";
+    const experienceLevel = learningProfile?.experienceLevel || "beginner";
 
     const script = await generateVideoScript(topic, subject, subtopic, experienceLevel, learningPace);
     console.log(`[Video] Script generated`);

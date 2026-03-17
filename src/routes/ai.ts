@@ -11,40 +11,45 @@ router.get('/recommendation', authenticate, async (req: AuthRequest, res: Respon
   try {
     const userId = req.user!._id;
 
-    let learningProfile = await LearningProfile.findOne({ userId });
+    const user = await User.findById(userId);
+    let learningProfile = null;
     
-    if (!learningProfile) {
-      learningProfile = new LearningProfile({
-        userId,
-        learningPace: 'moderate',
-        experienceLevel: 'beginner',
-        subjects: [],
-        strongTopics: [],
-        weakTopics: [],
-        completedTopics: [],
-        recommendedTopics: []
-      });
-      await learningProfile.save();
-      console.log('[AI] Created default learning profile for user:', userId);
+    if (user?.role === 'student') {
+      learningProfile = await LearningProfile.findOne({ userId });
+      
+      if (!learningProfile) {
+        learningProfile = new LearningProfile({
+          userId,
+          learningPace: 'medium',
+          experienceLevel: 'beginner',
+          subjects: [],
+          strongTopics: [],
+          weakTopics: [],
+          completedTopics: [],
+          recommendedTopics: []
+        });
+        await learningProfile.save();
+        console.log('[AI] Created default learning profile for user:', userId);
+      }
     }
 
     const userBehaviors = await UserLearningBehavior.find({ userId });
-    const user = await User.findById(userId);
 
     const completedTopics = userBehaviors
       .filter(b => b.completed)
       .map(b => b.topic);
     
-    const weakTopics = learningProfile.weakTopics || [];
-    const strongTopics = learningProfile.strongTopics || [];
+    const weakTopics = learningProfile?.weakTopics || [];
+    const strongTopics = learningProfile?.strongTopics || [];
+    const profileSubjects = learningProfile?.subjects || [];
 
     const contextPrompt = `
 You are an AI learning mentor for NeuronixLearn platform.
 
 User learning profile:
-- Learning Pace: ${learningProfile.learningPace}
-- Experience Level: ${learningProfile.experienceLevel}
-- Subjects of interest: ${learningProfile.subjects.join(', ') || 'Not specified'}
+- Learning Pace: ${learningProfile?.learningPace || 'medium'}
+- Experience Level: ${learningProfile?.experienceLevel || 'beginner'}
+- Subjects of interest: ${profileSubjects.join(', ') || 'Not specified'}
 - Strong topics: ${strongTopics.length > 0 ? strongTopics.join(', ') : 'None identified yet'}
 - Weak topics: ${weakTopics.length > 0 ? weakTopics.join(', ') : 'None identified yet'}
 - Completed topics: ${completedTopics.length > 0 ? completedTopics.join(', ') : 'None yet'}
@@ -70,26 +75,26 @@ Provide a clear, concise recommendation.
         userProfile: {
           name: user?.name || 'Student',
           grade: user?.profile?.grade,
-          subjectInterests: learningProfile.subjects,
+          subjectInterests: profileSubjects,
           weakAreas: weakTopics,
           preferredLearningStyle: user?.profile?.preferredLearningStyle || 'mixed',
           learningGoals: user?.profile?.learningGoals || [],
           currentPerformanceLevel: user?.profile?.currentPerformanceLevel || 'average',
-          pacePreference: learningProfile.learningPace
+          pacePreference: learningProfile?.learningPace || 'medium'
         },
         learningHistory: [],
         cognitiveLoadScore: user?.cognitiveLoad || 50,
         currentStreak: user?.progress?.currentStreak || 0,
         completedCourses: completedTopics.length,
-        enrolledCourses: learningProfile.subjects.length,
+        enrolledCourses: profileSubjects.length,
         intent: user?.intent
       }
     );
 
     res.json({
       recommendation: aiResponse.response,
-      learningPace: learningProfile.learningPace,
-      experienceLevel: learningProfile.experienceLevel,
+      learningPace: learningProfile?.learningPace || 'medium',
+      experienceLevel: learningProfile?.experienceLevel || 'beginner',
       weakTopics,
       strongTopics,
       completedTopicsCount: completedTopics.length

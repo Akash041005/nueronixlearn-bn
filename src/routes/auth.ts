@@ -97,19 +97,21 @@ router.post('/register', async (req: Request, res: Response) => {
       await user.save();
       console.log('User created successfully:', user._id);
 
-      const learningProfile = new LearningProfile({
-        userId: user._id,
-        learningPace: value.learningPace === 'moderate' ? 'medium' : (value.learningPace || 'medium'),
-        experienceLevel: value.experienceLevel || 'beginner',
-        subjects: value.subjects || [],
-        strongTopics: [],
-        weakTopics: [],
-        completedTopics: [],
-        recommendedTopics: []
-      });
-      
-      await learningProfile.save();
-      console.log('Learning profile created successfully:', learningProfile._id);
+      if (value.role === 'student') {
+        const learningProfile = new LearningProfile({
+          userId: user._id,
+          learningPace: value.learningPace === 'moderate' ? 'medium' : (value.learningPace || 'medium'),
+          experienceLevel: value.experienceLevel || 'beginner',
+          subjects: value.subjects || [],
+          strongTopics: [],
+          weakTopics: [],
+          completedTopics: [],
+          recommendedTopics: []
+        });
+        
+        await learningProfile.save();
+        console.log('Learning profile created successfully:', learningProfile._id);
+      }
 
       const token = jwt.sign(
         { userId: user._id },
